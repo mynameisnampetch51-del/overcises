@@ -13,18 +13,24 @@ import 'camera_view.dart';
 import 'discard_guard.dart';
 import 'exercise.dart';
 import 'permission_view.dart';
+import 'pose_camera.dart';
+import 'rep_counter.dart';
 import 'summary_view.dart';
 
 /// Figma screen 04.
 ///
-/// DEMO: no pose model is connected. Reps are made up by a timer and the
-/// screen says so. Replace [_tick] when real counting is added.
+/// Jumping jacks are counted from the camera where a pose model exists (the web
+/// build). Everything else is DEMO mode: a timer makes up the reps and the
+/// screen says so.
 class ActiveWorkoutScreen extends ConsumerStatefulWidget {
   const ActiveWorkoutScreen({super.key, required this.exercise});
 
   final Exercise exercise;
 
   static const secondsPerSimulatedRep = 2;
+
+  /// Exercises whose rule is connected to the camera. Sit-up is on hold.
+  static const liveExercises = {Exercise.jumpingJack};
 
   @override
   ConsumerState<ActiveWorkoutScreen> createState() =>
@@ -37,6 +43,16 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
   int _reps = 0;
   bool _visible = true;
   WorkoutResult? _result;
+
+  final _counter = JumpingJackCounter();
+  bool _demoChosen = false;
+  String _hint = 'Loading the pose model…';
+  String? _poseError;
+
+  bool get _live =>
+      !_demoChosen &&
+      ActiveWorkoutScreen.liveExercises.contains(widget.exercise) &&
+      ref.read(poseCameraProvider) != null;
 
   bool get _running => _timer != null;
 
@@ -78,9 +94,46 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
     if (ref.read(discardPromptOpenProvider)) return;
     setState(() {
       _seconds++;
-      if (_seconds % ActiveWorkoutScreen.secondsPerSimulatedRep == 0) _reps++;
+      if (!_live &&
+          _seconds % ActiveWorkoutScreen.secondsPerSimulatedRep == 0) {
+        _reps++;
+      }
     });
   }
+
+  /// One camera frame.
+  void _onPose(Pose? pose) {
+    if (!mounted || _result != null || !_live) return;
+
+    final counted =
+        pose != null &&
+        _running &&
+        !ref.read(discardPromptOpenProvider) &&
+        _counter.update(pose);
+
+    final String hint;
+    if (pose == null || !JumpingJackCounter.seesBody(pose)) {
+      hint = 'Step back until your whole body is in view';
+    } else {
+      final ratio = JumpingJackCounter.feetRatio(pose);
+      final feet = ratio == null ? '' : ' (feet ${ratio.toStringAsFixed(1)})';
+      hint = !_running
+          ? 'Ready. Press Start counting$feet'
+          : _counter.isReady
+          ? 'Jump: hands up, feet apart$feet'
+          : 'Hands down, feet together$feet';
+    }
+
+    if (counted || hint != _hint || _poseError != null) {
+      setState(() {
+        if (counted) _reps++;
+        _hint = hint;
+        _poseError = null;
+      });
+    }
+  }
+
+  void _onPoseError(String message) => setState(() => _poseError = message);
 
   void _toggle() {
     setState(() {
@@ -125,6 +178,8 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
     }
 
     final started = _seconds > 0 || _running;
+    final live = _live;
+    final size = MediaQuery.sizeOf(context);
 
     return PopScope(
       canPop: !ref.watch(workoutInProgressProvider),
@@ -142,10 +197,11 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
               first: [
                 Container(
                   // Short enough that Start stays on a phone screen.
-                  height: (MediaQuery.sizeOf(context).height * 0.3).clamp(
-                    200,
-                    420,
-                  ),
+                  // Taller for live counting on a big screen, so the skeleton
+                  // can be seen.
+                  height: live && size.width >= 600
+                      ? (size.height * 0.55).clamp(240, 520)
+                      : (size.height * 0.3).clamp(200, 420),
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     color: AppColors.deepest,
@@ -154,24 +210,39 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (_visible) ref.watch(cameraViewProvider)(),
+                      if (_visible)
+                        if (live)
+                          ref.watch(poseCameraProvider)!(
+                            onPose: _onPose,
+                            onError: _onPoseError,
+                          )
+                        else
+                          ref.watch(cameraViewProvider)(),
                       Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           // Room for the "Camera not available" line.
                           const SizedBox(height: 32),
                           Expanded(
-                            child: Center(child: _BigReps(reps: _reps)),
+                            child: Align(
+                              alignment: Alignment.topLeft,
+                              child: Padding(
+                                padding: const EdgeInsets.only(left: 10),
+                                child: _BigReps(reps: _reps),
+                              ),
+                            ),
                           ),
                           Container(
-                            width: double.infinity,
                             color: AppColors.deepest.withValues(alpha: 0.75),
                             padding: const EdgeInsets.all(8),
                             child: Text(
-                              widget.exercise.cameraTip,
+                              live
+                                  ? _poseError ?? _hint
+                                  : widget.exercise.cameraTip,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 14,
+                                fontSize: live ? 18 : 14,
                               ),
                             ),
                           ),
@@ -182,7 +253,26 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
                 ),
               ],
               second: [
-                const _DemoNotice(),
+                if (live)
+                  _Notice(
+                    icon: Icons.videocam_outlined,
+                    text:
+                        _poseError ??
+                        'Live counting: your camera counts jumping jacks on '
+                            'this device.',
+                    // The backup. Not offered mid-workout unless it failed,
+                    // so counted and made-up reps are not mixed.
+                    onUseDemo: started && _poseError == null
+                        ? null
+                        : () => setState(() => _demoChosen = true),
+                  )
+                else
+                  const _Notice(
+                    icon: Icons.info_outline,
+                    text:
+                        'Demo mode: reps are simulated. The camera is not '
+                        'counting yet.',
+                  ),
                 const SizedBox(height: 14),
                 _Stat(value: formatTime(_seconds), label: 'time'),
                 const SizedBox(height: 18),
@@ -210,8 +300,12 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
   }
 }
 
-class _DemoNotice extends StatelessWidget {
-  const _DemoNotice();
+class _Notice extends StatelessWidget {
+  const _Notice({required this.icon, required this.text, this.onUseDemo});
+
+  final IconData icon;
+  final String text;
+  final VoidCallback? onUseDemo;
 
   @override
   Widget build(BuildContext context) {
@@ -221,15 +315,21 @@ class _DemoNotice extends StatelessWidget {
         color: AppColors.pastel,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: const Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.info_outline, color: AppColors.deep),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Demo mode: reps are simulated. The camera is not counting yet.',
-            ),
+          Row(
+            children: [
+              Icon(icon, color: AppColors.deep),
+              const SizedBox(width: 10),
+              Expanded(child: Text(text)),
+            ],
           ),
+          if (onUseDemo != null)
+            TextButton(
+              onPressed: onUseDemo,
+              child: const Text('Use demo mode instead'),
+            ),
         ],
       ),
     );

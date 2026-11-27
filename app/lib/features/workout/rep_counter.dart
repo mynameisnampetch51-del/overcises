@@ -57,6 +57,10 @@ class JumpingJackCounter implements RepCounter {
   static const feetOpen = 1.1;
   static const feetClosed = 0.9;
 
+  /// Box height above the nose, in shoulder widths. Tall enough for straight
+  /// arms.
+  static const boxHeight = 2.5;
+
   static const _needed = [
     Joint.nose,
     Joint.leftShoulder,
@@ -68,6 +72,22 @@ class JumpingJackCounter implements RepCounter {
   ];
 
   bool _closed = false;
+
+  /// True once the closed position is seen and an open one will count.
+  bool get isReady => _closed;
+
+  /// Whether every point this counter needs is in view.
+  static bool seesBody(Pose pose) => _sees(pose, _needed);
+
+  /// Ankle distance in shoulder widths, to help tune the limits.
+  static double? feetRatio(Pose pose) {
+    if (!seesBody(pose)) return null;
+    final shoulders =
+        (pose[Joint.leftShoulder]!.x - pose[Joint.rightShoulder]!.x).abs();
+    if (shoulders == 0) return null;
+    return (pose[Joint.leftAnkle]!.x - pose[Joint.rightAnkle]!.x).abs() /
+        shoulders;
+  }
 
   @override
   int count = 0;
@@ -90,7 +110,7 @@ class JumpingJackCounter implements RepCounter {
     bool inBox(Landmark wrist) =>
         (wrist.x - centerX).abs() < shoulderWidth &&
         wrist.y < nose.y &&
-        wrist.y > nose.y - shoulderWidth;
+        wrist.y > nose.y - boxHeight * shoulderWidth;
 
     final handsDown =
         leftWrist.y > leftShoulder.y && rightWrist.y > rightShoulder.y;

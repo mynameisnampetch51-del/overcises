@@ -22,8 +22,8 @@ class PermissionView extends StatelessWidget {
         for (final (icon, text) in const [
           (
             Icons.videocam_outlined,
-            'Overcise uses your camera so you can see yourself while you '
-                'work out.',
+            'Overcise uses your camera to show you while you work out and to '
+                'count jumping jacks.',
           ),
           (
             Icons.lock_outline,

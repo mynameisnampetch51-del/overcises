@@ -12,6 +12,8 @@ import 'package:overcise/features/quests/quest.dart';
 import 'package:overcise/features/splash/splash_screen.dart';
 import 'package:overcise/features/workout/camera_view.dart';
 import 'package:overcise/features/workout/exercise.dart';
+import 'package:overcise/features/workout/pose_camera.dart';
+import 'package:overcise/features/workout/rep_counter.dart';
 import 'package:overcise/main.dart';
 
 Future<void> passSplash(WidgetTester tester) async {
@@ -31,6 +33,7 @@ Future<void> openApp(
   WidgetTester tester, {
   // A phone-sized screen unless a test asks for another.
   Size size = const Size(390, 844),
+  PoseCamera? poseCamera,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -40,6 +43,7 @@ Future<void> openApp(
     ProviderScope(
       // Tests have no camera.
       overrides: [
+        poseCameraProvider.overrideWithValue(poseCamera),
         cameraViewProvider.overrideWithValue(
           () => const CameraMessage('test camera'),
         ),
@@ -824,5 +828,94 @@ void main() {
 
     expect(find.text(leaveQuestion), findsNothing);
     expect(find.text('Ready to move?'), findsOneWidget);
+  });
+
+  /// Opens the jumping jack workout with a pretend pose camera.
+  Future<(void Function(Pose?), void Function(String))> openLiveJack(
+    WidgetTester tester,
+  ) async {
+    late void Function(Pose?) send;
+    late void Function(String) fail;
+    await openApp(
+      tester,
+      poseCamera: ({required onPose, required onError}) {
+        send = onPose;
+        fail = onError;
+        return const SizedBox.expand();
+      },
+    );
+    await logIn(tester, 'demo@overcise.app', '123456');
+    await tapText(tester, 'Start workout →');
+    final start = find.byKey(const Key('start-jumping-jack'));
+    await tester.ensureVisible(start);
+    await tester.pumpAndSettle();
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+    await tapText(tester, 'Allow camera and continue');
+    return (send, fail);
+  }
+
+  Pose person({required bool open}) {
+    final wristY = open ? 20.0 : 400.0;
+    final feet = open ? 160.0 : 60.0;
+    return {
+      Joint.nose: const Landmark(300, 100),
+      Joint.leftShoulder: const Landmark(350, 160),
+      Joint.rightShoulder: const Landmark(250, 160),
+      Joint.leftWrist: Landmark(330, wristY),
+      Joint.rightWrist: Landmark(270, wristY),
+      Joint.leftAnkle: Landmark(300 + feet / 2, 600),
+      Joint.rightAnkle: Landmark(300 - feet / 2, 600),
+    };
+  }
+
+  String bigReps(WidgetTester tester) =>
+      tester.widget<Text>(find.byKey(const Key('big-reps'))).data!;
+
+  testWidgets('live jumping jacks count from poses, not from the clock', (
+    tester,
+  ) async {
+    final (send, _) = await openLiveJack(tester);
+    expect(find.textContaining('Live counting'), findsOneWidget);
+
+    // Nothing counts before Start.
+    send(person(open: false));
+    send(person(open: true));
+    await tester.pump();
+    expect(bigReps(tester), '0');
+
+    await tapText(tester, 'Start counting');
+    await passSeconds(tester, 6);
+    expect(bigReps(tester), '0');
+
+    for (var i = 0; i < 3; i++) {
+      send(person(open: false));
+      send(person(open: true));
+    }
+    await tester.pump();
+    expect(bigReps(tester), '3');
+    expect(find.text('Use demo mode instead'), findsNothing);
+
+    await tapText(tester, 'Pause');
+    send(person(open: false));
+    send(person(open: true));
+    await tester.pump();
+    expect(bigReps(tester), '3');
+
+    await tapText(tester, 'Finish and see result');
+    expect(find.text('+3'), findsOneWidget);
+  });
+
+  testWidgets('a pose failure can fall back to demo mode', (tester) async {
+    final (_, fail) = await openLiveJack(tester);
+    fail('The pose model did not load.');
+    await tester.pump();
+    expect(find.text('The pose model did not load.'), findsWidgets);
+
+    await tapText(tester, 'Use demo mode instead');
+    expect(find.textContaining('reps are simulated'), findsOneWidget);
+    await tapText(tester, 'Start counting');
+    await passSeconds(tester, 4);
+    expect(bigReps(tester), '2');
   });
 }

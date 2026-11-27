@@ -60,6 +60,15 @@ void main() {
     expect(run(JumpingJackCounter(), [closed, legsOnly, closed]), 0);
   });
 
+  test('jumping jack: straight arms high above the head still count', () {
+    final high = {
+      ...open,
+      Joint.leftWrist: const Landmark(330, -100),
+      Joint.rightWrist: const Landmark(270, -100),
+    };
+    expect(run(JumpingJackCounter(), [closed, high]), 1);
+  });
+
   test('jumping jack: hidden feet are ignored', () {
     expect(
       run(JumpingJackCounter(), [
