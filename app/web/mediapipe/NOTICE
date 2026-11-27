@@ -1,0 +1,5 @@
+The files in this folder are not part of Overcise. They are redistributed under
+the Apache License 2.0 (see LICENSE). Copyright The MediaPipe Authors.
+
+- vision_bundle.mjs, wasm/: npm package @mediapipe/tasks-vision 0.10.14
+- pose_landmarker_lite.task: MediaPipe Pose Landmarker (lite) model by Google

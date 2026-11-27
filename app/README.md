@@ -1,17 +1,24 @@
-# overcise
+# Overcise app
 
-A new Flutter project.
+Flutter demo. All data is fake and held in memory. Demo login:
+`demo@overcise.app` / `123456`.
 
-## Getting Started
+Jumping jacks are counted from the webcam in the **web build** only
+(MediaPipe, in `web/mediapipe/`). Sit-ups, and every platform without a pose
+model, run in demo mode with simulated reps.
 
-This project is a starting point for a Flutter application.
+## Run
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+flutter run -d chrome --no-web-resources-cdn
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+`--no-web-resources-cdn` serves Flutter's renderer locally instead of from a
+CDN. Fonts may still be fetched online.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Check
+
+```bash
+flutter analyze
+flutter test
+```

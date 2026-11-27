@@ -876,13 +876,14 @@ void main() {
     tester,
   ) async {
     final (send, _) = await openLiveJack(tester);
-    expect(find.textContaining('Live counting'), findsOneWidget);
+    expect(find.textContaining('Live counting'), findsNothing);
 
     // Nothing counts before Start.
     send(person(open: false));
     send(person(open: true));
     await tester.pump();
     expect(bigReps(tester), '0');
+    expect(find.textContaining('Live counting'), findsOneWidget);
 
     await tapText(tester, 'Start counting');
     await passSeconds(tester, 6);
@@ -917,5 +918,40 @@ void main() {
     await tapText(tester, 'Start counting');
     await passSeconds(tester, 4);
     expect(bigReps(tester), '2');
+  });
+
+  testWidgets('nothing can be counted before the camera delivers', (
+    tester,
+  ) async {
+    await openLiveJack(tester);
+    expect(find.textContaining('Not counting yet'), findsOneWidget);
+    expect(find.text('Use demo mode instead'), findsOneWidget);
+    final start = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Start counting'),
+    );
+    expect(start.onPressed, isNull);
+  });
+
+  testWidgets('switching to demo mode after a failure starts from zero', (
+    tester,
+  ) async {
+    final (send, fail) = await openLiveJack(tester);
+    send(person(open: false));
+    await tester.pump();
+    await tapText(tester, 'Start counting');
+    send(person(open: false));
+    send(person(open: true));
+    await passSeconds(tester, 3);
+    expect(bigReps(tester), '1');
+
+    fail('The camera stopped.');
+    await tester.pump();
+    await passSeconds(tester, 5);
+    expect(find.text('0:03'), findsOneWidget);
+
+    await tapText(tester, 'Use demo mode instead');
+    expect(bigReps(tester), '0');
+    expect(find.text('0:00'), findsOneWidget);
+    expect(find.textContaining('reps are simulated'), findsOneWidget);
   });
 }

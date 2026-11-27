@@ -46,8 +46,12 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
 
   final _counter = JumpingJackCounter();
   bool _demoChosen = false;
-  String _hint = 'Loading the pose model…';
+  static const _loading = 'Loading the pose model…';
+  String _hint = _loading;
   String? _poseError;
+
+  /// True once the current camera has sent a frame. Until then nothing counts.
+  bool _frameSeen = false;
 
   bool get _live =>
       !_demoChosen &&
@@ -90,8 +94,10 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
   }
 
   void _tick(Timer timer) {
-    // Reps and time stay put while "Leave this workout?" is open.
+    // Reps and time stay put while "Leave this workout?" is open, or while the
+    // camera is not delivering.
     if (ref.read(discardPromptOpenProvider)) return;
+    if (_live && !_frameSeen) return;
     setState(() {
       _seconds++;
       if (!_live &&
@@ -124,8 +130,9 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
           : 'Hands down, feet together$feet';
     }
 
-    if (counted || hint != _hint || _poseError != null) {
+    if (counted || !_frameSeen || hint != _hint || _poseError != null) {
       setState(() {
+        _frameSeen = true;
         if (counted) _reps++;
         _hint = hint;
         _poseError = null;
@@ -133,7 +140,34 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
     }
   }
 
-  void _onPoseError(String message) => setState(() => _poseError = message);
+  void _onPoseError(String message) {
+    if (!mounted) return;
+    setState(() {
+      _poseError = message;
+      _frameSeen = false;
+    });
+  }
+
+  /// A new camera picture (first open, tab switch, resized window).
+  void _onCameraOpened() {
+    if (!mounted) return;
+    setState(() {
+      _hint = _loading;
+      _poseError = null;
+      _frameSeen = false;
+    });
+  }
+
+  /// The backup. Starts again from zero, so counted and made-up reps never mix.
+  void _useDemo() {
+    _stopTimer();
+    ref.read(workoutInProgressProvider.notifier).set(false);
+    setState(() {
+      _demoChosen = true;
+      _reps = 0;
+      _seconds = 0;
+    });
+  }
 
   void _toggle() {
     setState(() {
@@ -212,9 +246,12 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
                     children: [
                       if (_visible)
                         if (live)
-                          ref.watch(poseCameraProvider)!(
-                            onPose: _onPose,
-                            onError: _onPoseError,
+                          _OnOpen(
+                            onOpen: _onCameraOpened,
+                            child: ref.watch(poseCameraProvider)!(
+                              onPose: _onPose,
+                              onError: _onPoseError,
+                            ),
                           )
                         else
                           ref.watch(cameraViewProvider)(),
@@ -258,13 +295,12 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
                     icon: Icons.videocam_outlined,
                     text:
                         _poseError ??
-                        'Live counting: your camera counts jumping jacks on '
-                            'this device.',
-                    // The backup. Not offered mid-workout unless it failed,
-                    // so counted and made-up reps are not mixed.
-                    onUseDemo: started && _poseError == null
-                        ? null
-                        : () => setState(() => _demoChosen = true),
+                        (_frameSeen
+                            ? 'Live counting: your camera counts jumping jacks '
+                                  'on this device.'
+                            : 'Starting the camera. Not counting yet.'),
+                    // Hidden only while counting is really working.
+                    onUseDemo: started && _frameSeen ? null : _useDemo,
                   )
                 else
                   const _Notice(
@@ -277,7 +313,8 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
                 _Stat(value: formatTime(_seconds), label: 'time'),
                 const SizedBox(height: 18),
                 FilledButton(
-                  onPressed: _toggle,
+                  // Cannot start before the camera delivers.
+                  onPressed: live && !_frameSeen && !_running ? null : _toggle,
                   child: Text(
                     _running
                         ? 'Pause'
@@ -298,6 +335,28 @@ class _ActiveWorkoutScreenState extends ConsumerState<ActiveWorkoutScreen> {
       ),
     );
   }
+}
+
+/// Calls [onOpen] after [child] is first shown.
+class _OnOpen extends StatefulWidget {
+  const _OnOpen({required this.onOpen, required this.child});
+
+  final VoidCallback onOpen;
+  final Widget child;
+
+  @override
+  State<_OnOpen> createState() => _OnOpenState();
+}
+
+class _OnOpenState extends State<_OnOpen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => widget.onOpen());
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _Notice extends StatelessWidget {

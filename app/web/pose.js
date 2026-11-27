@@ -41,6 +41,15 @@ function start(host, onPose, onError) {
 
   const release = () => stream?.getTracks().forEach((track) => track.stop());
 
+  // Any failure, also in the middle of counting, must reach the app.
+  const fail = (message, error) => {
+    if (stopped) return;
+    stopped = true;
+    if (error) console.error(error);
+    release();
+    onError(message);
+  };
+
   (async () => {
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -48,11 +57,14 @@ function start(host, onPose, onError) {
         audio: false,
       });
     } catch (_) {
-      if (!stopped) onError('Camera not available. Allow the camera for this page.');
+      fail('Camera not available. Allow the camera for this page.');
       return;
     }
     try {
       if (stopped) return release();
+      // Unplugged, or permission taken back.
+      stream.getTracks().forEach((track) =>
+        track.addEventListener('ended', () => fail('The camera stopped.')));
       video.srcObject = stream;
       await video.play();
       landmarker ??= load();
@@ -64,6 +76,15 @@ function start(host, onPose, onError) {
 
       const frame = () => {
         if (stopped) return;
+        try {
+          readFrame();
+        } catch (error) {
+          return fail('Counting stopped because of an error.', error);
+        }
+        requestAnimationFrame(frame);
+      };
+
+      const readFrame = () => {
         if (video.currentTime !== lastTime && video.videoWidth > 0) {
           lastTime = video.currentTime;
           const width = video.videoWidth;
@@ -84,13 +105,11 @@ function start(host, onPose, onError) {
             onPose(null);
           }
         }
-        requestAnimationFrame(frame);
       };
       frame();
     } catch (error) {
-      console.error(error);
       landmarker = undefined; // let the next try load again
-      if (!stopped) onError('The pose model did not load.');
+      fail('The pose model did not load.', error);
     }
   })();
 
