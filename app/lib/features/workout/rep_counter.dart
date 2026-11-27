@@ -1,7 +1,5 @@
 import 'dart:math';
 
-import 'exercise.dart';
-
 /// The body points the rules need.
 enum Joint {
   nose,
@@ -33,11 +31,6 @@ typedef Pose = Map<Joint, Landmark>;
 /// Counts reps from one pose per camera frame. Knows nothing about the camera
 /// or the pose model, so any of them can feed it.
 abstract class RepCounter {
-  factory RepCounter(Exercise exercise) => switch (exercise) {
-    Exercise.jumpingJack => JumpingJackCounter(),
-    Exercise.sitUp => SitUpCounter(),
-  };
-
   /// Points the model is less sure of than this are not trusted.
   static const minVisibility = 0.5;
 
