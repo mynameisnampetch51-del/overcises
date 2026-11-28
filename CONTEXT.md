@@ -9,7 +9,7 @@ One repetition of an exercise that the camera AI judges to have correct form. On
 _Avoid_: Rep (unqualified), count
 
 **Exercise**:
-A movement the camera AI can recognise and score. v1 supports two: squat and jumping jack.
+A movement the camera AI can recognise and score. v1 supports two: jumping jack and sit-up.
 _Avoid_: Workout, move, pose
 
 **Points**:
